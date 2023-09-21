@@ -1,0 +1,111 @@
+---
+title: "Homework 4"
+author: "Michelle Zamperlini"
+date: "2023-09-21"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(seriation)
+library(ggplot2)
+
+data <- read.csv("HW4_data.csv")
+rownames(data) <- data$age
+data <- as.matrix(data[,-1])
+
+```
+
+## Problem 1
+
+For this homework, we are investigating any possible association between age of the trial participants and if they develop a fever after receiving the covid vaccination shot.
+
+```{r, echo = FALSE}
+data
+```
+
+First, we look to test the null hypothesis that the severity of the systemic reaction fever is independent of the age against the alternative hypothesis of dependence. To do so, we compute the approximate p-values for the Pearson chi-square test (i.e., the score test) and the likelihood ratio test using their large-sample distributions.
+
+For the Pearson chi-square test, we take advantage of the built in r functions, and get a p-value very close to 0 from the results below.
+
+```{r}
+x2 <- chisq.test(data, correct=TRUE)
+x2
+```
+
+For the likelihood ratio test statistic, we must calculate the expected counts. Because of the \(0\) cell count under Fever Grade 4 for participants over 65, our calculations have a division by zero and therefore an NA outcome within the summation of our likelihood ratio test statistic. \[G^2 = \sum_{i,j} n_{ij}log(\frac {n_{ij}}{\hat{\mu_{ij}}})\]
+
+To correct for this, we remember the limit as n approaches zero for this logarithm term is zero, and we make the replacement in the code to continue calculating the LRT statistic. The final p-value from the test statistic agrees wit the Pearson statistic and is very small, close to zero.
+
+```{r}
+#lrt
+n_total <- sum(data)
+n_rows <- rowSums(data) 
+n_cols <- colSums(data)
+
+marg_rows <- n_rows / n_total
+marg_col <- n_cols / n_total
+exp_counts <- outer(marg_rows, marg_col) * n_total
+
+sum_for_g2 <- data * log(data / exp_counts)
+sum_for_g2[3,5] <- 0 #from prof notes replace na with 0 
+
+lrt <- 2 * sum(sum_for_g2)
+#df is (3-1)*(5-1) = 2*4
+pchisq(lrt, df = 8, lower.tail = FALSE)
+```
+
+The result from both tests would lead us to reject the null hypothesis of independence at the 99% confidence level. 
+
+From the heatmap visualization below, we look at the standardized difference between observed and expected counts. The heatmap shows that the violation of independence is most severe in the "None" category of fever level. The pattern for that column is different from the other fever levels, indicating the presence of a dependence.
+
+```{r, echo=FALSE}
+x2$stdres
+gghmap(x2$stdres) +
+  labs(fill = 'Standardized residual')
+```
+
+## Problem 2
+
+Now we will estimate all eight log odds ratios of the odds of each of the different grades against not developing a fever for each age group relative to the same odds for adults < 65 years of age. We also report the 99% Wald-type confidence interval for these odd ratios by initially calculating using log odds, and then back transforming to the odds ratio once the confidence interval is calculated. 
+
+The observational \(0\) causes issues for the Wald-type confidence interval. The standard error is calculated as \(se(log(\hat{\theta})) = \sqrt{\sum_{i,j}1/n_{ij}}\), but there is a division by zero because of our zero cell count. To continue the solution, that value after calculation was treated as 0 instead of NA for purposes of the summation. This allows a solution that can be used for construction of the subsequent confidence intervals. No continuity correction was done for the calculation of the log odds ratios as they were manually calculated. 
+
+The first outcome below shows that the log odds ratio is \(3.686\) of developing a grade 1 fever against not developing a fever in adolescence (< 18 years) relative to adults over 65. This is equivalent to an odds ratio of \(\theta = e^{3.686} = 39.885\). So the odds are almost 40 times greater of an adolescent presenting with a grade 1 Fever (as opposed to no fever) than a person over the age of 65 presenting with a grade 1 fever as opposed to no fever. 
+
+```{r, echo = FALSE}
+se <- sqrt(sum(1 / data[data !=0]))
+
+for (i in 1:2) {
+  for (j in 2:5) {
+    print(paste0("The log odds ratio of fever ", colnames(data)[j], " against not developing a fever", " for ", row.names(data)[i], " relative to ", row.names(data)[3]))
+    logodd <- log(data[i, j] * data[3, 1] / (data[3, j] * data[i, 1]))
+    ci_logodd <- logodd + c(-1, 1) * qnorm(0.995) * se
+    print(logodd)
+    print(exp(ci_logodd))
+  }
+}
+```
+
+## Problem 3
+
+Similarly to our previous problem, the zero cell count causes trouble with calculating the odds ratio. We now look at a subset of the data, though.
+
+```{r, echo = FALSE}
+subdata <- data.frame("Grade 4" = c(0,4), "None" = c(3752,11301),
+           row.names = c("65 years of age and above","between 18 and 65 years of age"))
+subdata
+```
+
+From the above table, we estimate the ratio of the odds of developing a grade 4 fever against not developing a fever in adults over 65 versus adults between 18 and 65. \[\theta = \frac{n_{11}n_{22}}{n_{12}n_{21}} = \frac{0*11301}{3752*4} = 0\]
+
+Without a correction, the zero cell count drops our odds ratio to zero.
+
+From here, I was unsure how to proceed with the odds ratio based on the Likelihood Ratio test statistic.
+The Fisher exact test, though yielded the results below. The estimated odds ratio, as we calculated manually, is shown as 0 and the 99 percent confidence interval of the odds ratio is (0, 8.318)
+
+```{r}
+fisher.test(subdata, conf.level = 0.99)
+```
+
+A zero for the odds ratio here is in line with the results from problem 2, where the log odds calculated to infinity due to the zero cell count. 
